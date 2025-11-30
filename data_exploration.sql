@@ -23,7 +23,7 @@ from deaths
 where location ~* 'united states'
 order by 1,2 
 
--- Highest infection rate countries
+-- Highest infection rate countries (Rank Function)
 select location, population, highest_infection_count, infection_rate,
 Rank() over (order by infection_rate DESC) as rank
 from(
@@ -46,4 +46,77 @@ from (
     from deaths
     group by location, continent
 )
-GROUP BY continent
+group by continent
+
+-- Global infection and death count per day
+select date, sum(new_cases) as total_cases, sum(new_deaths) as total_deaths 
+from deaths
+where continent is not null
+group by date
+order by 1,2
+
+-- Vaccination percentage per date per location (JOIN)
+select d.date, d.location, d.population, v.new_vaccinations
+from deaths d
+join vaccinations v 
+on d.location = v.location and d.date = v.date
+where d.continent is not null
+order by 2, 1
+
+-- Vaccination percentage per date per location with rolling vaccination count (Window Function)
+select d.date, d.location, d.population, v.new_vaccinations, sum(v.new_vaccinations) over (partition by d.location order by d.date) as total_vaccinations
+from deaths d
+join vaccinations v 
+on d.location = v.location and d.date = v.date
+where d.continent is not null
+order by 2, 1
+
+-- Cumulative vaccination percentage per location (CTE Method)
+with vaccinations_summary as (
+    select d.date, d.location, d.population, v.new_vaccinations, sum(v.new_vaccinations) over (partition by d.location order by d.date) as total_vaccinations
+    from deaths d
+    join vaccinations v 
+    on d.location = v.location and d.date = v.date
+    where d.continent is not null
+)
+select s.location, s.population, MAX(s.total_vaccinations/s.population) * 100 as vaccination_percentage
+from vaccinations_summary s
+group by s.location, s.population
+order by s.location
+
+-- Cumulative vaccination percentage per location (Temp Table Method)
+drop table if exists PercentPopulationVaccinated;
+create table PercentPopulationVaccinated (
+    continent text,
+    location text,
+    date date,
+    population numeric,
+    new_vaccinations numeric,
+    rolling_people_vaccinated numeric 
+)
+insert into PercentPopulationVaccinated
+select d.continent, d.location, d.date, d.population, v.new_vaccinations, sum(v.new_vaccinations) over (partition by d.location order by d.date) as rolling_people_vaccinated
+from deaths d
+join vaccinations v 
+on d.location = v.location and d.date = v.date
+where d.continent is not null
+
+select *, (rolling_people_vaccinated/population) * 100 as vaccination_percentage
+from PercentPopulationVaccinated
+
+-- Creating a View for Vaccination Percentage per Location
+create view PercentagePopulationVaccinated as
+with vaccinations_summary as (
+    select d.date, d.location, d.population, v.new_vaccinations, sum(v.new_vaccinations) over (partition by d.location order by d.date) as total_vaccinations
+    from deaths d
+    join vaccinations v 
+    on d.location = v.location and d.date = v.date
+    where d.continent is not null
+)
+select s.location, s.population, MAX(s.total_vaccinations/s.population) * 100 as vaccination_percentage
+from vaccinations_summary s
+group by s.location, s.population
+order by s.location
+
+select * 
+from PercentagePopulationVaccinated
